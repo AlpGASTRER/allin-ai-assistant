@@ -14,6 +14,7 @@ class InteractionManager:
         self.live_model_name = 'models/gemini-2.0-flash-live-001' 
         self.client = None # Initialize client attribute
         self.system_prompt = None # Initialize system_prompt attribute
+        self.last_session_handle = None # Add state for session resumption
 
         # --- Load System Prompt ---
         try:
@@ -65,10 +66,18 @@ class InteractionManager:
             await live_session.send_client_content(turns=turn, turn_complete=True)
             # ---------------------------------------
 
-            # --- Receive and stream response back ---
+            # --- Receive response and handle resumption ---
             logger.debug("Waiting for response from live session...")
             full_response = ""
             async for response in live_session.receive():
+                # Check for session resumption updates
+                if response.session_resumption_update:
+                    update = response.session_resumption_update
+                    if update.resumable and update.new_handle:
+                        logger.info(f"Received new session resumption handle: {update.new_handle}")
+                        self.last_session_handle = update.new_handle # Store the new handle
+
+                # Process text response
                 if response.text is not None:
                     text_chunk = response.text
                     await websocket.send_text(text_chunk)

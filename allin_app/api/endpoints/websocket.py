@@ -27,12 +27,27 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     # --- Prepare Live API Config ---
-    live_config = {"response_modalities": ["TEXT"]} # Start with basic text config
     system_prompt_text = interaction_manager.get_system_prompt()
-    if system_prompt_text:
-        live_config["system_instruction"] = types.Content(
-            parts=[types.Part(text=system_prompt_text)]
+    initial_handle = interaction_manager.last_session_handle # Get the handle
+    logger.info(f"Attempting connection with session handle: {initial_handle}")
+
+    # Use LiveConnectConfig class
+    live_config = types.LiveConnectConfig(
+        response_modalities=["TEXT"],
+        # Add Session Resumption config
+        session_resumption=types.SessionResumptionConfig(
+            handle=initial_handle
+        ),
+        # Add Context Window Compression config
+        context_window_compression=types.ContextWindowCompressionConfig(
+            sliding_window=types.SlidingWindow(), # Use default sliding window
         )
+    )
+
+    # Add system instruction if available
+    if system_prompt_text:
+        live_config.system_instruction = types.Content(
+            parts=[types.Part(text=system_prompt_text)])
         logger.info("System instruction included in Live API config.")
     else:
         logger.warning("No system prompt loaded, proceeding without system instruction.")
@@ -43,7 +58,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info(f"Connecting to Live API model: {interaction_manager.live_model_name}")
         async with interaction_manager.client.aio.live.connect(
             model=interaction_manager.live_model_name, 
-            config=live_config
+            config=live_config # Pass the LiveConnectConfig object
         ) as session:
             logger.info(f"Live API session established for {client_host}:{client_port}")
             
