@@ -1,0 +1,18 @@
+# Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0 # Use [standard] for websockets support
+websockets==14.2
+python-dotenv==1.0.0
+
+# Google AI
+# Ensure this meets the minimum version specified in project_description.txt
+# Version 1.13.0 or newer is required for LiveAPI and Code Execution
+google-genai==1.13.0 
+
+# Utils
+pydantic==2.6.1
+pydantic-settings==2.2.1
+loguru==0.7.2
+
+# Added based on google-generativeai potentially needing it for file handling
+aiohttp
