@@ -2,8 +2,7 @@ from fastapi import FastAPI
 # Import logger first to ensure it's configured
 from allin_app.core.logging_config import logger
 # Import routers
-from allin_app.api.endpoints import websocket #, chat, admin, health
-import os
+from allin_app.api.endpoints import websocket, root, chat #, admin, health
 
 logger.info("Starting Allin AI Assistant application...")
 
@@ -27,8 +26,8 @@ async def health_check():
 
 # Include routers
 app.include_router(websocket.router)
-# app.include_router(health.router) # If moved from here
-# app.include_router(chat.router)    # To be added in Phase 4
+app.include_router(root.router)
+app.include_router(chat.router)    # Include the chat router now
 # app.include_router(admin.router)   # To be added in Phase 4
 
 logger.info("FastAPI application configured and routers included.")

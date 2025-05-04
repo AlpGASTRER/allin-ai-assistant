@@ -167,7 +167,8 @@ class InteractionManager:
                 try:
                     # Add user message
                     await self.memory_manager.add_memory(user_id=user_id, role="user", content=message)
-                    # Add AI response
+                    # Log the content being saved for the assistant
+                    logger.debug(f"Saving assistant response to memory for user {user_id}: '{full_response_text}'")                    # Add AI response
                     await self.memory_manager.add_memory(user_id=user_id, role="assistant", content=full_response_text)
                     logger.debug(f"Added user message and AI response to memory for user {user_id}.")
                 except Exception as e:

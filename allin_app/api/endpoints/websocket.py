@@ -1,39 +1,40 @@
 # WebSocket endpoint logic (Phase 2)
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from ...core.interaction import InteractionManager # Adjusted import path
 from google.genai import types # Import types for config
 from ...core.logging_config import logger # Adjusted import path
+from ...core.dependencies import get_interaction_manager # Import the dependency getter
 import json # Import json for parsing incoming data
 
 router = APIRouter()
 
 @router.websocket("/ws") # Remove chat_id from path, session is tied to connection
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, manager: InteractionManager = Depends(get_interaction_manager)):
     client_host = websocket.client.host
     client_port = websocket.client.port
     logger.info(f"WebSocket connection accepted from {client_host}:{client_port}")
     await websocket.accept()
 
-    # Create a new InteractionManager instance for this specific connection
+    # Use the injected InteractionManager instance ('manager')
     try:
-        interaction_manager = InteractionManager()
-        if not interaction_manager.client: # Check if google client init failed within manager
-             raise ValueError("InteractionManager failed to initialize Google GenAI client.")
-        logger.info(f"InteractionManager created for connection {client_host}:{client_port}")
+        # Check the injected manager's client
+        if not manager.client: # Check if google client init failed within manager
+            raise ValueError("InteractionManager failed to initialize Google GenAI client.")
+        logger.info(f"Using shared InteractionManager for connection {client_host}:{client_port}")
     except Exception as e:
         logger.critical(f"Failed to initialize InteractionManager for connection {client_host}:{client_port}: {e}", exc_info=True)
         # Close connection if manager fails to init
         await websocket.close(code=1011, reason="AI Service Initialization Error")
         return
 
-    if not interaction_manager.client:
+    if not manager.client:
         logger.error(f"InteractionManager or GenAI client not available. Closing WebSocket from {client_host}:{client_port}.")
         await websocket.close(code=1011, reason="AI Service Unavailable")
         return
 
     # --- Prepare Live API Config ---
-    system_prompt_text = interaction_manager.get_system_prompt()
-    initial_handle = interaction_manager.last_session_handle # Get the handle
+    system_prompt_text = manager.get_system_prompt()
+    initial_handle = manager.last_session_handle # Get the handle
     logger.info(f"Attempting connection with session handle: {initial_handle}")
 
     # Use LiveConnectConfig class
@@ -67,10 +68,10 @@ async def websocket_endpoint(websocket: WebSocket):
         # ---------------------------------------
 
         # --- Establish Live API Session --- 
-        logger.info(f"Connecting to Live API model: {interaction_manager.live_model_name}")
+        logger.info(f"Connecting to Live API model: {manager.live_model_name}")
 
-        async with interaction_manager.client.aio.live.connect(
-            model=interaction_manager.live_model_name, 
+        async with manager.client.aio.live.connect(
+            model=manager.live_model_name, 
             config=live_config # Pass the updated LiveConnectConfig object with tools
         ) as session:
             logger.info(f"Live API session established for connection from {client_host}:{client_port}")
@@ -100,7 +101,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Process the message using the live session
                 # Pass user_id and message extracted from JSON
                 try:
-                    async for response_part in interaction_manager.process_live_message(
+                    async for response_part in manager.process_live_message(
                         live_session=session,
                         user_id=user_id, # Pass user_id
                         message=message, # Pass message content
