@@ -2,6 +2,7 @@
 from google import genai
 from google.genai import types
 from .config import settings  # Use relative import for config
+from ..memory.manager import MemoryManager # Import MemoryManager
 from .logging_config import logger # Use relative import for logger
 import asyncio
 from pathlib import Path
@@ -15,6 +16,7 @@ class InteractionManager:
         self.client = None # Initialize client attribute
         self.system_prompt = None # Initialize system_prompt attribute
         self.last_session_handle = None # Add state for session resumption
+        self.memory_manager = None # Initialize memory manager attribute
 
         # --- Load System Prompt ---
         try:
@@ -27,19 +29,27 @@ class InteractionManager:
                 logger.warning(f"System prompt file not found at: {prompt_path}")
         except Exception as e:
             logger.error(f"Failed to load system prompt: {e}")
-        # ------------------------
 
-        # --- Initialize Google AI Client ---
+        # --- Initialize Memory Manager ---
         try:
-            # Initialize the client directly with the API key
-            self.client = genai.Client(api_key=settings.google_api_key)
-            logger.info(f"Google GenAI client initialized successfully.")
-            # Optional: Test connection or list models here if needed
-
+            self.memory_manager = MemoryManager()
         except Exception as e:
-            logger.error(f"Failed to initialize Google GenAI client: {e}")
-            logger.error("Please ensure GOOGLE_API_KEY is set correctly in the .env file and network is accessible.")
-            self.client = None
+            logger.error(f"Failed to initialize MemoryManager: {e}", exc_info=True)
+            # Allow InteractionManager to continue, but memory features will be disabled
+        # ---------------------------------
+
+        # --- Initialize Google Client --- 
+        if settings.google_api_key:
+            try:
+                # Initialize the client directly with the API key
+                self.client = genai.Client(api_key=settings.google_api_key)
+                logger.info(f"Google GenAI client initialized successfully.")
+                # Optional: Test connection or list models here if needed
+
+            except Exception as e:
+                logger.error(f"Failed to initialize Google GenAI client: {e}")
+                logger.error("Please ensure GOOGLE_API_KEY is set correctly in the .env file and network is accessible.")
+                self.client = None
 
         # TODO: Initialize other components like:
         # - Memory Manager
@@ -50,24 +60,45 @@ class InteractionManager:
         """Returns the loaded system prompt text."""
         return self.system_prompt
 
-    async def process_live_message(self, live_session, message: str, websocket):
+    async def process_live_message(self, live_session, user_id: str, message: str, websocket):
         """Processes a message within an active Live API session."""
         if not self.client:
-            logger.error("InteractionManager: Google GenAI client not initialized.")
+            logger.error("Google GenAI client not initialized.")
+            await websocket.send_text("Error: AI Service not configured.")
             return
 
-        logger.info(f"Processing live message: {message}")
+        logger.info(f"Processing live message for user_id '{user_id}': {message[:50]}...")
+
+        # --- Prepare content with Memory ---
+        final_content_to_send = message
+        if self.memory_manager:
+            try:
+                # Retrieve relevant memories
+                relevant_memories = await self.memory_manager.get_relevant_memory(user_id=user_id, query=message)
+                if relevant_memories:
+                    # Use more explicit labels for the AI
+                    memory_prefix = "CONTEXT FROM PREVIOUS CONVERSATIONS:\n"
+                    formatted_memories = "\n".join(f"- {mem}" for mem in relevant_memories)
+                    # Add clearer separation between context and current message
+                    final_content_to_send = f"{memory_prefix}{formatted_memories}\n\nCURRENT USER MESSAGE:\n{message}"
+                    logger.debug(f"Prepended {len(relevant_memories)} memories to message for user {user_id}.")
+                else:
+                    logger.debug(f"No relevant memories found for user {user_id} query.")
+
+            except Exception as e:
+                logger.error(f"Failed to retrieve/format memory for user {user_id}: {e}", exc_info=True)
+                # Proceed without memory if retrieval fails
+        # -----------------------------------
 
         try:
-            # --- Send message using Live Session ---
-            # Structure the message according to Live API 'turns' format
-            turn = types.Content(role="user", parts=[types.Part(text=message)])
-            logger.debug(f"Sending content to live session: {turn}")
+            # --- Send message --- 
+            turn = types.Content(role="user", parts=[types.Part(text=final_content_to_send)]) # Use potentially modified content
+            logger.debug(f"Sending content to live session for user {user_id}: {str(turn)[:100]}...")
             await live_session.send_client_content(turns=turn, turn_complete=True)
-            # ---------------------------------------
+            # --------------------------------------- 
 
-            # --- Receive response and handle resumption ---
-            logger.debug("Waiting for response from live session...")
+            # --- Receive response and handle resumption --- 
+            logger.debug(f"Waiting for response from live session for user {user_id}...")
             full_response = ""
             async for response in live_session.receive():
                 # Check for session resumption updates
@@ -84,15 +115,27 @@ class InteractionManager:
                     full_response += text_chunk
                 # TODO: Handle other response types if needed (e.g., audio, tool calls)
 
-            logger.debug(f"Full response received: {full_response}")
-            # ----------------------------------------
+            logger.debug(f"Full response received for user {user_id}: {full_response[:100]}...")
+            # -------------------------------------------- 
+
+            # --- Add Interaction to Memory --- 
+            if self.memory_manager and full_response: # Only add if memory exists and we got a response
+                try:
+                    # Add user message
+                    await self.memory_manager.add_memory(user_id=user_id, role="user", content=message)
+                    # Add AI response
+                    await self.memory_manager.add_memory(user_id=user_id, role="assistant", content=full_response)
+                    logger.debug(f"Added user message and AI response to memory for user {user_id}.")
+                except Exception as e:
+                    logger.error(f"Failed to add interaction to memory for user {user_id}: {e}", exc_info=True)
+            # --------------------------------- 
 
         except Exception as e:
-            logger.error(f"Error processing live message: {e}")
+            logger.error(f"Error processing live message for user {user_id}: {e}", exc_info=True)
             try:
-                await websocket.send_text(f"Error: {e}")
-            except Exception as ws_err:
-                logger.error(f"Failed to send error via WebSocket: {ws_err}")
+                await websocket.send_text(f"Error processing message: {e}")
+            except Exception:
+                logger.error(f"Failed to send error via WebSocket: {e}")
 
 async def cleanup_interaction(interaction_manager):
     # TODO: Implement cleanup logic here

@@ -3,16 +3,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ...core.interaction import InteractionManager # Adjusted import path
 from google.genai import types # Import types for config
 from ...core.logging_config import logger # Adjusted import path
+import json # Import json for parsing incoming data
 
 router = APIRouter()
-
-# Instantiate the InteractionManager (global for now, consider DI later)
-# Ensure this runs *after* logging and config are set up if they have side effects on import
-try:
-    interaction_manager = InteractionManager()
-except Exception as e:
-    logger.critical(f"Failed to initialize InteractionManager: {e}")
-    interaction_manager = None # Set to None to prevent usage
 
 @router.websocket("/ws") # Remove chat_id from path, session is tied to connection
 async def websocket_endpoint(websocket: WebSocket):
@@ -21,7 +14,19 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"WebSocket connection accepted from {client_host}:{client_port}")
     await websocket.accept()
 
-    if not interaction_manager or not interaction_manager.client:
+    # Create a new InteractionManager instance for this specific connection
+    try:
+        interaction_manager = InteractionManager()
+        if not interaction_manager.client: # Check if google client init failed within manager
+             raise ValueError("InteractionManager failed to initialize Google GenAI client.")
+        logger.info(f"InteractionManager created for connection {client_host}:{client_port}")
+    except Exception as e:
+        logger.critical(f"Failed to initialize InteractionManager for connection {client_host}:{client_port}: {e}", exc_info=True)
+        # Close connection if manager fails to init
+        await websocket.close(code=1011, reason="AI Service Initialization Error")
+        return
+
+    if not interaction_manager.client:
         logger.error(f"InteractionManager or GenAI client not available. Closing WebSocket from {client_host}:{client_port}.")
         await websocket.close(code=1011, reason="AI Service Unavailable")
         return
@@ -60,14 +65,38 @@ async def websocket_endpoint(websocket: WebSocket):
             model=interaction_manager.live_model_name, 
             config=live_config # Pass the LiveConnectConfig object
         ) as session:
-            logger.info(f"Live API session established for {client_host}:{client_port}")
+            logger.info(f"Live API session established for connection from {client_host}:{client_port}")
             
             # --- Interaction Loop --- 
             # Listen for messages from the WebSocket client
-            async for message in websocket.iter_text():
-                logger.debug(f"Received via WebSocket from {client_host}:{client_port}: {message}")
+            async for raw_data in websocket.iter_text(): # Changed variable name
+                logger.debug(f"Received raw data via WebSocket from {client_host}:{client_port}: {raw_data}")
+
+                # --- Parse Incoming JSON ---
+                try:
+                    data = json.loads(raw_data)
+                    user_id = data.get("user_id")
+                    message = data.get("message")
+
+                    if not user_id or not message:
+                        logger.warning("Received message missing user_id or message field.")
+                        await websocket.send_text("Error: Missing 'user_id' or 'message' in request.")
+                        continue # Skip processing this message
+
+                except json.JSONDecodeError:
+                    logger.warning(f"Received invalid JSON from {client_host}:{client_port}: {raw_data}")
+                    await websocket.send_text("Error: Invalid JSON format.")
+                    continue # Skip processing this message
+                # --------------------------
+
                 # Process the message using the live session
-                await interaction_manager.process_live_message(session, message, websocket)
+                # Pass user_id and message extracted from JSON
+                await interaction_manager.process_live_message(
+                    live_session=session,
+                    user_id=user_id, # Pass user_id
+                    message=message, # Pass message content
+                    websocket=websocket
+                )
             # -----------------------
 
         logger.info(f"Live API session closed for {client_host}:{client_port}")
