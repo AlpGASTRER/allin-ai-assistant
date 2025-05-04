@@ -102,33 +102,39 @@ class InteractionManager:
             # --------------------------------------- 
 
             # --- Receive response and handle resumption --- 
-            logger.debug(f"Waiting for response from live session for user {user_id}...")
-            full_response = ""
-            async for response in live_session.receive():
-                # Check for session resumption updates
-                if response.session_resumption_update:
-                    update = response.session_resumption_update
-                    if update.resumable and update.new_handle:
-                        logger.info(f"Received new session resumption handle: {update.new_handle}")
-                        self.last_session_handle = update.new_handle # Store the new handle
-
-                # Process text response
-                if response.text is not None:
-                    text_chunk = response.text
-                    await websocket.send_text(text_chunk)
-                    full_response += text_chunk
-                # TODO: Handle other response types if needed (e.g., audio, tool calls)
-
-            logger.debug(f"Full response received for user {user_id}: {full_response[:100]}...")
-            # -------------------------------------------- 
-
-            # --- Add Interaction to Memory --- 
-            if self.memory_manager and full_response: # Only add if memory exists and we got a response
+            full_response_text = ""
+            async for chunk in live_session.receive():
+                # Process structured server content
+                if chunk.server_content:
+                    model_turn = chunk.server_content.model_turn
+                    if model_turn:
+                        for part in model_turn.parts:
+                            if part.text is not None:
+                                text_content = part.text
+                                full_response_text += text_content # Append for memory
+                                # Yield structured data for text
+                                yield {"type": "text", "content": text_content}
+                            elif part.executable_code is not None:
+                                code_content = part.executable_code.code
+                                # Don't add code itself to memory, maybe just a placeholder?
+                                # full_response_text += f"\n[Code Block Executed]\n"
+                                # Yield structured data for code
+                                yield {"type": "code", "content": code_content}
+                            elif part.code_execution_result is not None:
+                                result_output = part.code_execution_result.output
+                                # Add execution output to memory
+                                full_response_text += f"\n--- Code Output ---\n{result_output}\n-------------------\n"
+                                # Yield structured data for code result
+                                yield {"type": "code_result", "content": result_output}
+                            # TODO: Handle other potential parts like inline_data if needed
+ 
+            # --- Store AI Response in Memory --- 
+            if self.memory_manager and full_response_text:
                 try:
                     # Add user message
                     await self.memory_manager.add_memory(user_id=user_id, role="user", content=message)
                     # Add AI response
-                    await self.memory_manager.add_memory(user_id=user_id, role="assistant", content=full_response)
+                    await self.memory_manager.add_memory(user_id=user_id, role="assistant", content=full_response_text)
                     logger.debug(f"Added user message and AI response to memory for user {user_id}.")
                 except Exception as e:
                     logger.error(f"Failed to add interaction to memory for user {user_id}: {e}", exc_info=True)

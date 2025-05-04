@@ -59,11 +59,19 @@ async def websocket_endpoint(websocket: WebSocket):
     # -----------------------------
 
     try:
+        # --- Configure tools for the Live API session --- 
+        tools = [types.Tool(code_execution=types.ToolCodeExecution())]
+        # Add the tools to the existing live_config object
+        live_config.tools = tools
+        logger.info(f"Live API config now includes tools: {live_config.tools}")
+        # ---------------------------------------
+
         # --- Establish Live API Session --- 
         logger.info(f"Connecting to Live API model: {interaction_manager.live_model_name}")
+
         async with interaction_manager.client.aio.live.connect(
             model=interaction_manager.live_model_name, 
-            config=live_config # Pass the LiveConnectConfig object
+            config=live_config # Pass the updated LiveConnectConfig object with tools
         ) as session:
             logger.info(f"Live API session established for connection from {client_host}:{client_port}")
             
@@ -78,9 +86,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     user_id = data.get("user_id")
                     message = data.get("message")
 
-                    if not user_id or not message:
-                        logger.warning("Received message missing user_id or message field.")
-                        await websocket.send_text("Error: Missing 'user_id' or 'message' in request.")
+                    if user_id is None or message is None:
+                        logger.warning(f"Received invalid message structure: {raw_data}")
+                        await websocket.send_text(json.dumps({"type": "error", "content": "Invalid message format. 'user_id' and 'message' are required."}))
                         continue # Skip processing this message
 
                 except json.JSONDecodeError:
@@ -91,12 +99,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 # Process the message using the live session
                 # Pass user_id and message extracted from JSON
-                await interaction_manager.process_live_message(
-                    live_session=session,
-                    user_id=user_id, # Pass user_id
-                    message=message, # Pass message content
-                    websocket=websocket
-                )
+                try:
+                    async for response_part in interaction_manager.process_live_message(
+                        live_session=session,
+                        user_id=user_id, # Pass user_id
+                        message=message, # Pass message content
+                        websocket=websocket
+                    ):
+                        # Send the structured response part as a JSON string
+                        await websocket.send_text(json.dumps(response_part))
+
+                    # Indicate the end of the response stream (optional, depends on client needs)
+                    await websocket.send_text(json.dumps({"type": "end_of_response"}))
+                except Exception as e:
+                    logger.error(f"Error during message processing for {client_host}:{client_port}: {e}", exc_info=True)
             # -----------------------
 
         logger.info(f"Live API session closed for {client_host}:{client_port}")
