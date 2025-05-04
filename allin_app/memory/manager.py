@@ -68,10 +68,11 @@ class MemoryManager:
             memories = self.memory_client.search(query=query, user_id=user_id, limit=limit)
             logger.info(f"Found {len(memories)} relevant memories for user {user_id}.")
             # Extract just the text content from the memory objects
-            return [memory.get('text', '') for memory in memories if 'text' in memory]
+            # Corrected: Use the 'memory' key as identified in logs
+            return [memory.get('memory', '') for memory in memories if 'memory' in memory]
         except Exception as e:
             logger.error(f"Failed to search memory for user {user_id}: {e}", exc_info=True)
-            return []
+            return [] # Return empty list on error
 
     # TODO: Add other methods as needed (e.g., get_all_memory, delete_memory)
 

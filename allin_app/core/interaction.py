@@ -69,8 +69,8 @@ class InteractionManager:
 
         logger.info(f"Processing live message for user_id '{user_id}': {message[:50]}...")
 
-        # --- Prepare content with Memory ---
-        final_content_to_send = message
+        # --- Prepare content with Memory --- 
+        turns_to_send = []
         if self.memory_manager:
             try:
                 # Retrieve relevant memories
@@ -78,9 +78,11 @@ class InteractionManager:
                 if relevant_memories:
                     # Use more explicit labels for the AI
                     memory_prefix = "CONTEXT FROM PREVIOUS CONVERSATIONS:\n"
-                    formatted_memories = "\n".join(f"- {mem}" for mem in relevant_memories)
-                    # Add clearer separation between context and current message
-                    final_content_to_send = f"{memory_prefix}{formatted_memories}\n\nCURRENT USER MESSAGE:\n{message}"
+                    formatted_memories_text = "\n".join(f"- {mem}" for mem in relevant_memories)
+                    # Create a separate turn for the memory context
+                    # Using role='user' for context might be okay, or might need refinement based on API behavior
+                    context_turn = types.Content(role="user", parts=[types.Part(text=f"{memory_prefix}{formatted_memories_text}")])
+                    turns_to_send.append(context_turn)
                     logger.debug(f"Prepended {len(relevant_memories)} memories to message for user {user_id}.")
                 else:
                     logger.debug(f"No relevant memories found for user {user_id} query.")
@@ -88,13 +90,15 @@ class InteractionManager:
             except Exception as e:
                 logger.error(f"Failed to retrieve/format memory for user {user_id}: {e}", exc_info=True)
                 # Proceed without memory if retrieval fails
-        # -----------------------------------
+
+        # Always add the current user message as the final turn
+        current_message_turn = types.Content(role="user", parts=[types.Part(text=message)])
+        turns_to_send.append(current_message_turn)
 
         try:
-            # --- Send message --- 
-            turn = types.Content(role="user", parts=[types.Part(text=final_content_to_send)]) # Use potentially modified content
-            logger.debug(f"Sending content to live session for user {user_id}: {str(turn)[:100]}...")
-            await live_session.send_client_content(turns=turn, turn_complete=True)
+            logger.debug(f"Sending {len(turns_to_send)} turn(s) to live session for user {user_id}: {str(turns_to_send)[:150]}...")
+            # Send the list of turns
+            await live_session.send_client_content(turns=turns_to_send, turn_complete=True)
             # --------------------------------------- 
 
             # --- Receive response and handle resumption --- 

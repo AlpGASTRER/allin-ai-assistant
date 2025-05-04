@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
 from pydantic import Field
-# Use BaseSettings from pydantic_settings for newer Pydantic versions
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 # Determine the project root directory dynamically
 # __file__ is the path to the current file (config.py)
@@ -16,7 +16,8 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 class Settings(BaseSettings):
     # Use Field(..., env=...) for required fields read from environment
-    google_api_key: str = Field(..., validation_alias="GOOGLE_API_KEY")
+    google_api_key: Optional[str] = Field(None, validation_alias="GOOGLE_API_KEY")
+    mem0_api_key: Optional[str] = Field(None, validation_alias="MEM0_API_KEY")
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL")
     # Add other settings as needed
     # Example: database_url: str = Field(None, validation_alias="DATABASE_URL")
