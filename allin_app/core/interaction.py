@@ -103,31 +103,65 @@ class InteractionManager:
 
             # --- Receive response and handle resumption --- 
             full_response_text = ""
-            async for chunk in live_session.receive():
-                # Process structured server content
-                if chunk.server_content:
-                    model_turn = chunk.server_content.model_turn
-                    if model_turn:
-                        for part in model_turn.parts:
-                            if part.text is not None:
-                                text_content = part.text
-                                full_response_text += text_content # Append for memory
-                                # Yield structured data for text
-                                yield {"type": "text", "content": text_content}
-                            elif part.executable_code is not None:
-                                code_content = part.executable_code.code
-                                # Don't add code itself to memory, maybe just a placeholder?
-                                # full_response_text += f"\n[Code Block Executed]\n"
-                                # Yield structured data for code
-                                yield {"type": "code", "content": code_content}
-                            elif part.code_execution_result is not None:
-                                result_output = part.code_execution_result.output
-                                # Add execution output to memory
-                                full_response_text += f"\n--- Code Output ---\n{result_output}\n-------------------\n"
-                                # Yield structured data for code result
-                                yield {"type": "code_result", "content": result_output}
-                            # TODO: Handle other potential parts like inline_data if needed
- 
+            text_buffer = "" # Buffer for consecutive text parts
+
+            try:
+                async for chunk in live_session.receive():
+                    # Process structured server content
+                    if chunk.server_content:
+                        model_turn = chunk.server_content.model_turn
+                        if model_turn:
+                            for part in model_turn.parts:
+                                if part.text is not None:
+                                    text_content = part.text
+                                    # Append to buffer instead of yielding immediately
+                                    text_buffer += text_content
+                                elif part.executable_code is not None:
+                                    # If buffer has content, yield it first
+                                    if text_buffer:
+                                        full_response_text += text_buffer 
+                                        yield {"type": "text", "content": text_buffer}
+                                        text_buffer = "" # Clear buffer
+                                    # Process Code Part
+                                    # Add a placeholder to memory indicating code was generated
+                                    full_response_text += "\n[AI generated code to perform the requested task]\n"
+                                    code_content = part.executable_code.code
+                                    yield {"type": "code", "content": code_content}
+                                elif part.code_execution_result is not None:
+                                    # If buffer has content, yield it first
+                                    if text_buffer:
+                                        full_response_text += text_buffer 
+                                        yield {"type": "text", "content": text_buffer}
+                                        text_buffer = "" # Clear buffer
+                                    # Process Code Result (Check for Errors)
+                                    result_output = part.code_execution_result.output
+                                    is_error = "Traceback (most recent call last):" in result_output or \
+                                               "Error:" in result_output or \
+                                               "Exception:" in result_output
+                                    if is_error:
+                                        logger.warning(f"Code execution error: {result_output[:100]}...")
+                                        # Use a clearer placeholder for failed execution in memory
+                                        full_response_text += "\n[AI code execution FAILED]\n"
+                                        yield {"type": "code_error", "content": result_output}
+                                    else:
+                                        full_response_text += f"\n--- Code Output ---\n{result_output}\n-------------------\n"
+                                        yield {"type": "code_result", "content": result_output}
+                                # TODO: Handle other potential parts like inline_data
+            except Exception as e:
+                logger.error(f"Error during Live API stream processing for user {user_id}: {e}", exc_info=True)
+                # Yield a specific error message to the client
+                yield {"type": "api_error", 
+                       "content": "An error occurred while processing the AI response.", 
+                       "details": str(e)}
+                # We might want to break or ensure the session closes gracefully depending on the error
+                # For now, we'll let it proceed to the 'finally' block equivalent (post-loop yield)
+                # Note: The error might mean the 'end_of_response' from the websocket endpoint won't be sent naturally.
+
+            # After the loop (or if an error occurred), yield any remaining text in the buffer
+            if text_buffer:
+                full_response_text += text_buffer # Add final buffered text to memory
+                yield {"type": "text", "content": text_buffer}
+
             # --- Store AI Response in Memory --- 
             if self.memory_manager and full_response_text:
                 try:
