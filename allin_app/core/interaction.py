@@ -6,6 +6,7 @@ from ..memory.manager import MemoryManager # Import MemoryManager
 from .logging_config import logger # Use relative import for logger
 import asyncio
 from pathlib import Path
+from typing import Dict, Optional
 
 class InteractionManager:
     def __init__(self):
@@ -15,7 +16,7 @@ class InteractionManager:
         self.live_model_name = 'models/gemini-2.0-flash-live-001' 
         self.client = None # Initialize client attribute
         self.system_prompt = None # Initialize system_prompt attribute
-        self.last_session_handle = None # Add state for session resumption
+        self._session_handles: Dict[str, Optional[str]] = {} # Store user_id -> session handle
         self.memory_manager = None # Initialize memory manager attribute
 
         # --- Load System Prompt ---
@@ -60,7 +61,25 @@ class InteractionManager:
         """Returns the loaded system prompt text."""
         return self.system_prompt
 
-    async def process_live_message(self, live_session, user_id: str, message: str, websocket):
+    def get_session_handle(self, user_id: str) -> Optional[str]:
+        """Retrieves the last known session handle for a given user_id."""
+        handle = self._session_handles.get(user_id)
+        logger.debug(f"Retrieved session handle for user '{user_id}': {'Exists' if handle else 'None'}")
+        return handle
+
+    def set_session_handle(self, user_id: str, handle: Optional[str]):
+        """Stores the session handle for a given user_id."""
+        self._session_handles[user_id] = handle
+        logger.info(f"Stored session handle for user '{user_id}': {'Set' if handle else 'Cleared'}")
+
+    async def process_live_message(
+        self, 
+        live_session, 
+        user_id: str, 
+        chat_id: str, 
+        message: str, 
+        websocket
+    ):
         """Processes a message within an active Live API session."""
         if not self.client:
             logger.error("Google GenAI client not initialized.")
@@ -166,10 +185,10 @@ class InteractionManager:
             if self.memory_manager and full_response_text:
                 try:
                     # Add user message
-                    await self.memory_manager.add_memory(user_id=user_id, role="user", content=message)
+                    await self.memory_manager.add_memory(user_id=user_id, role="user", content=message, chat_id=chat_id)
                     # Log the content being saved for the assistant
                     logger.debug(f"Saving assistant response to memory for user {user_id}: '{full_response_text}'")                    # Add AI response
-                    await self.memory_manager.add_memory(user_id=user_id, role="assistant", content=full_response_text)
+                    await self.memory_manager.add_memory(user_id=user_id, role="assistant", content=full_response_text, chat_id=chat_id)
                     logger.debug(f"Added user message and AI response to memory for user {user_id}.")
                 except Exception as e:
                     logger.error(f"Failed to add interaction to memory for user {user_id}: {e}", exc_info=True)

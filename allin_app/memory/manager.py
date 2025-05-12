@@ -30,13 +30,14 @@ class MemoryManager:
             logger.error(f"Failed to initialize MemoryClient: {e}", exc_info=True)
             # Keep self.memory_client as None if init fails
 
-    async def add_memory(self, user_id: str, role: str, content: str):
+    async def add_memory(self, user_id: str, role: str, content: str, chat_id: str = None):
         """Adds a piece of content to the memory for a specific user.
         
         Args:
             user_id: The unique identifier for the user.
             role: The role of the message sender ('user' or 'assistant').
             content: The text content of the message.
+            chat_id: Optional identifier for the specific chat session.
         """
         if not self.memory_client:
             logger.error("Mem0 client not available. Cannot add memory.")
@@ -50,8 +51,13 @@ class MemoryManager:
             }]
             # TODO: Determine if user_id should map to mem0's user_id or agent_id
             logger.debug(f"Adding memory for user {user_id}: {content[:50]}...")
+            # Prepare metadata, including chat_id if provided
+            metadata = {}
+            if chat_id:
+                metadata['chat_id'] = chat_id
+                logger.debug(f"Including metadata for chat_id: {chat_id}")
             # Pass the formatted message list
-            response = self.memory_client.add(message_to_add, user_id=user_id)
+            response = self.memory_client.add(message_to_add, user_id=user_id, metadata=metadata)
             logger.info(f"Memory added for user {user_id}. Response: {response}")
         except Exception as e:
             logger.error(f"Failed to add memory for user {user_id}: {e}", exc_info=True)

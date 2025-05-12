@@ -27,7 +27,7 @@ async def health_check():
 # Include routers
 app.include_router(websocket.router)
 app.include_router(root.router)
-app.include_router(chat.router)    # Include the chat router now
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"]) # Added prefix and tag
 # app.include_router(admin.router)   # To be added in Phase 4
 
 logger.info("FastAPI application configured and routers included.")

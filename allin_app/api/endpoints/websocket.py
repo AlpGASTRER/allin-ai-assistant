@@ -8,11 +8,12 @@ import json # Import json for parsing incoming data
 
 router = APIRouter()
 
-@router.websocket("/ws") # Remove chat_id from path, session is tied to connection
-async def websocket_endpoint(websocket: WebSocket, manager: InteractionManager = Depends(get_interaction_manager)):
+# Add user_id and chat_id to the path for immediate identification and handle retrieval
+@router.websocket("/ws/{user_id}/{chat_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, chat_id: str, manager: InteractionManager = Depends(get_interaction_manager)):
     client_host = websocket.client.host
     client_port = websocket.client.port
-    logger.info(f"WebSocket connection accepted from {client_host}:{client_port}")
+    logger.info(f"WebSocket connection accepted from {client_host}:{client_port} for user '{user_id}', chat '{chat_id}'")
     await websocket.accept()
 
     # Use the injected InteractionManager instance ('manager')
@@ -34,7 +35,8 @@ async def websocket_endpoint(websocket: WebSocket, manager: InteractionManager =
 
     # --- Prepare Live API Config ---
     system_prompt_text = manager.get_system_prompt()
-    initial_handle = manager.last_session_handle # Get the handle
+    # Retrieve the handle for this specific user
+    initial_handle = manager.get_session_handle(user_id)
     logger.info(f"Attempting connection with session handle: {initial_handle}")
 
     # Use LiveConnectConfig class
@@ -84,12 +86,12 @@ async def websocket_endpoint(websocket: WebSocket, manager: InteractionManager =
                 # --- Parse Incoming JSON ---
                 try:
                     data = json.loads(raw_data)
-                    user_id = data.get("user_id")
+                    # user_id is now obtained from the path parameter
                     message = data.get("message")
 
-                    if user_id is None or message is None:
+                    if message is None:
                         logger.warning(f"Received invalid message structure: {raw_data}")
-                        await websocket.send_text(json.dumps({"type": "error", "content": "Invalid message format. 'user_id' and 'message' are required."}))
+                        await websocket.send_text(json.dumps({"type": "error", "content": "Invalid message format. 'message' is required."}))
                         continue # Skip processing this message
 
                 except json.JSONDecodeError:
@@ -104,14 +106,32 @@ async def websocket_endpoint(websocket: WebSocket, manager: InteractionManager =
                     async for response_part in manager.process_live_message(
                         live_session=session,
                         user_id=user_id, # Pass user_id
+                        chat_id=chat_id, # Pass chat_id
                         message=message, # Pass message content
                         websocket=websocket
                     ):
                         # Send the structured response part as a JSON string
                         await websocket.send_text(json.dumps(response_part))
 
-                    # Indicate the end of the response stream (optional, depends on client needs)
-                    await websocket.send_text(json.dumps({"type": "end_of_response"}))
+                        # --- Handle Session Resumption Updates --- 
+                        # Check for session resumption updates within the response stream
+                        if response_part.get('type') == 'session_resumption_update':
+                            update_data = response_part.get('content') # Assuming content holds the update details
+                            if update_data and isinstance(update_data, dict):
+                                is_resumable = update_data.get('resumable')
+                                new_handle = update_data.get('new_handle')
+                                if is_resumable and new_handle:
+                                    # Store the new handle for this user
+                                    manager.set_session_handle(user_id, new_handle)
+                                    logger.info(f"Received and stored new session handle for user {user_id}.")
+                                elif not is_resumable:
+                                    # Session became non-resumable, clear the handle
+                                    manager.set_session_handle(user_id, None)
+                                    logger.warning(f"Session for user {user_id} became non-resumable. Cleared handle.")
+                        # -----------------------------------------
+
+                        # Indicate the end of the response stream (optional, depends on client needs)
+                        await websocket.send_text(json.dumps({"type": "end_of_response"}))
                 except Exception as e:
                     logger.error(f"Error during message processing for {client_host}:{client_port}: {e}", exc_info=True)
             # -----------------------

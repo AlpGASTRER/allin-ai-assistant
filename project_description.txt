@@ -2,257 +2,59 @@
 
 **Your Role:** You are an expert Python developer specializing in AI/ML applications, real-time systems, data processing pipelines, and API development using FastAPI. You build robust, modular, and scalable code suitable for cloud deployment.
 
-**Project Context:** You are tasked with building "Allin," an AI-powered assistant designed by Team 8. Allin aims to help new software engineers by providing real-time guidance (via voice and text) based on a knowledge base of documents, leveraging a Retrieval-Augmented Generation (RAG) system and maintaining conversational context. The final product will be a web application deployed via FastAPI on DigitalOcean.
+**Project Context:** You are tasked with building "Allin," an AI-powered assistant designed by Team 8. Allin aims to help new software engineers by providing real-time guidance (via voice and text). It will leverage a Retrieval-Augmented Generation (RAG) system using Supabase for data storage and vector search, and maintain conversational context. The final product will be a web application deployed via FastAPI.
 
-**Core Objective:** Develop the Allin application through a series of well-defined phases, starting with foundational components and culminating in a deployable FastAPI service. The architecture must be modular, incorporate conversational memory, and efficiently utilize the Google AI Files API for document handling.
+**Core Objective:** Develop the Allin application, focusing on a modular architecture. Key features include real-time interaction, robust conversational memory (using both Mem0ai for summarized context and Supabase for detailed chat logs), and future integration of voice capabilities and a RAG system.
 
 **Developer Guidance:**
-* **Use Context7:** Leverage the Context7 MCP server during development to fetch the latest documentation for libraries and APIs, *especially* for the Google AI and LiveAPI components (`google.genai`).
-* **Use Sequential Thinking:** Employ the Sequential Thinking MCP server to break down complex implementation tasks, plan architectural decisions, and refine logic step-by-step throughout the development process.
+* **Use Context7:** Leverage the Context7 MCP server during development to fetch the latest documentation for libraries and APIs, especially for Google AI, Mem0ai, and Supabase components.
+* **Use Sequential Thinking:** Employ the Sequential Thinking MCP server to break down complex implementation tasks, plan architectural decisions, and refine logic step-by-step.
 * **AI Assistant Environment Note:** The AI assistant collaborating on this project MUST execute any necessary terminal commands using **PowerShell** syntax, as the development environment is Windows.
 
-**Key Technical Requirements & Constraints:**
+**Key Technical Stack & Plans:**
 
 * **Framework:** FastAPI for the web application backend.
-* **Real-time Communication:** Implement real-time bidirectional communication (via WebSockets within FastAPI) to interface with the Google LiveAPI.
+* **Real-time Communication:** WebSockets within FastAPI for real-time bidirectional communication.
 * **AI Models & Configuration:**
-    * **Real-time Interaction:** `gemini-2.0-flash-live-001` via Google LiveAPI. Use `google.genai` library (version 1.13.0 or newer).
-    * **RAG Synthesis:** `gemini-2.0-flash`. Use `google.genai` library (version 1.13.0 or newer).
-    * **System Prompt:** Develop a comprehensive system prompt that:
-        - Defines Allin's identity and personality as Team 8's assistant
-        - Sets the tone and style of interactions
-        - Establishes boundaries and ethical guidelines
-        - Specifies how to handle different types of queries
-        - Guides the use of RAG context in responses
-        - Maintains consistency across conversations
-* **RAG Data Sources:** Knowledge base comprising:
-    * PDF files (containing text, tables, images)
-    * Standalone image files (e.g., PNG, JPG)
-* **RAG Data Handling:**
-    * **Primary Method:** Utilize the **Google AI Files API** via the `google.genai` library:
-```python
-from google import genai
-
-client = genai.Client(api_key="GOOGLE_API_KEY")
-myfile = client.files.upload(file="path/to/file.pdf")
-response = client.models.generate_content(
-    model="gemini-2.0-flash",
-    contents=["Analyze this document", myfile]
-)
-```
-
-* **Code Execution Capabilities:** Utilize the code execution features in the `google.genai` library to:
-    - Run and evaluate code snippets in real-time
-    - Provide practical examples to software engineers
-    - Debug and improve code through execution feedback
-    - Support multiple programming languages through the Gemini model's capabilities
-    
-    Example usage:
-```python
-from google import genai
-
-client = genai.Client(api_key="GOOGLE_API_KEY")
-response = client.models.generate_content(
-    model="gemini-2.0-flash",
-    contents=["Write a Python function to sort a list of numbers and explain how it works."],
-    generation_config={"response_mime_type": "application/json"},
-    tools=[genai.tools.CodeExecutionTool()]
-)
-```
-
-* **Custom Pipeline Implementation:**
-    The application implements its own processing pipeline through:
-    1. **WebSocket Handler** (`/ws` endpoint)
-    2. **Core Interaction Logic** (`allin_app/interaction.py`)
-       - Message flow management
-       - LiveAPI/RAG routing
-       - Context management
-       - File selection and prompt construction
-    3. **RAG Handler** (`allin_app/rag/rag_handler.py`)
-       - File selection logic
-       - Prompt construction with files
-       - Gemini model interaction
-    4. **Memory Manager** (`allin_app/memory/`)
-       - Conversation context management
-       - Chat history storage and retrieval
-       - Session persistence across user interactions
-       - Context switching between conversations
-       - File usage tracking
-
-* **Conversation Context Management:** 
-    * Use the context window features in the `google.genai` library for maintaining conversation history
-    * Implement a chat history system allowing users to:
-        - View previous chat sessions
-        - Swap between different conversations while preserving context
-        - Resume conversations with full context history
-        - Search across conversation history
-    * Utilize the context management capabilities in the Google GenAI library to maintain state between sessions
-    * Store conversation metadata (timestamps, topics, user actions) for improved retrieval
+    * **Core Interaction:** Google GenAI models (e.g., `gemini-2.0-flash-live-001` for live, `gemini-2.0-flash` for other tasks).
+    * **System Prompt:** A comprehensive system prompt defining Allin's identity, behavior, and RAG usage.
+* **Conversational Memory & History:**
+    * **Mem0ai:** Used for generating and retrieving summarized, long-term memories to provide broad context to the AI during live interactions. Context is shared per user across different chat sessions.
+    * **Supabase (PostgreSQL):** Will be used to store detailed, raw conversational turns (`user_id`, `chat_id`, `role`, `content`, `timestamp`) in a `chat_turns` table. This will provide a viewable chat history similar to standard messaging applications.
+    * **Multi-Chat:** Implemented `chat_id` to distinguish between different chat sessions for a user.
+* **Future - RAG System:**
+    * **Data Storage:** Supabase Storage for raw documents (PDFs, text, images). Supabase PostgreSQL for structured data and metadata.
+    * **Vector Store:** Supabase PostgreSQL with the `pgvector` extension for storing embeddings and performing similarity searches.
+    * **Process:** Documents will be chunked, embedded, and stored. User queries will be used to retrieve relevant chunks to augment LLM prompts.
+* **Future - Voice Chat:**
+    * **Audio Storage:** Supabase Storage for raw audio files.
+    * **Metadata & Transcriptions:** Supabase PostgreSQL to store transcriptions and metadata related to voice turns.
+* **Database & Backend:**
+    * **Supabase:** Primary backend solution providing PostgreSQL, Object Storage, and potentially Authentication and Edge Functions. Chosen for its generous free tier and open-source nature.
 * **Identity:** Must identify as "Allin" from "Team 8" consistently.
-* **Environment:** Conda environment named `allin_env`.
-* **Configuration:** Environment variables via `python-dotenv` in `config.py`.
+* **Environment:** Conda environment `allin_env`.
+* **Configuration:** Environment variables via `python-dotenv`.
 
-**API Structure:**
+**Current Status & Implemented Features:**
+*   Basic FastAPI application structure with WebSocket endpoint (`/ws/{user_id}/{chat_id}`).
+*   `InteractionManager` for managing message flow.
+*   `MemoryManager` integrating `mem0ai` for adding and retrieving summarized memories based on user ID.
+*   API endpoints:
+    *   `/api/v1/chat/history/{user_id}/{chat_id}` (currently attempts to retrieve from Mem0ai, will be updated to use Supabase).
+    *   `/api/v1/chat/chats/{user_id}` (lists unique chat_ids from Mem0ai metadata).
+*   Initial implementation of `chat_id` for multi-chat distinction.
 
-1. **WebSocket Endpoint (`/ws`)**
-   - Handles real-time bidirectional communication
-   - Manages streaming for voice/text
-   - Routes messages through the pipeline
+**Immediate Next Steps:**
+1.  **Supabase Integration:**
+    *   Create the `chat_turns` table in Supabase PostgreSQL.
+    *   Integrate the `supabase-py` Python client into the FastAPI application.
+    *   Modify the application to save all raw chat turns (user messages and AI responses) to the `chat_turns` table.
+    *   Update the `/api/v1/chat/history/{user_id}/{chat_id}` endpoint to fetch and display conversational history from this table.
+2.  **Refine Chat UI/UX:** (Conceptual) Plan how users will interact with multiple chats and view history.
 
-2. **REST Endpoints**
-   - `/health`: System health check
-   - `/chat/start`: Initialize new chat session
-   - `/chat/end`: End chat session
-   - `/chat/config`: Update chat settings
-   - `/chat/history`: Retrieve chat history list
-   - `/chat/history/{chat_id}`: Get specific chat session details
-   - `/chat/history/{chat_id}/resume`: Resume a previous chat session
-   - `/chat/search`: Search across chat history
-   - `/admin/sync_knowledge`: Trigger knowledge base sync
-   - `/admin/system-prompt`: Update system prompt
-
-**Detailed Building Phases:**
-
-**Phase 1: Foundational Setup**
-
-* **Goal:** Establish the core project structure, environment, dependencies, and essential configurations.
-* **Tasks:**
-    1.  **Project Setup:**
-        *   Create directory structure
-        *   Initialize Conda environment `allin_env`
-        *   Setup `requirements.txt`:
-```
-# Core
-fastapi==0.109.0
-uvicorn==0.27.0
-websockets==12.0
-python-dotenv==1.0.0
-
-# Google AI
-google.genai==1.13.0  # Includes code execution & LiveAPI capabilities
-
-# Utils
-pydantic==2.6.1
-loguru==0.7.2
-```
-    2.  **Configuration:**
-        *   Implement `config.py` using `python-dotenv` for environment variables (e.g., API keys).
-    3.  **System Prompt Development:**
-        *   Create initial system prompt defining Allin's identity and behavior.
-        *   Implement a basic prompt management system (e.g., load from file).
-        *   Consider version control for prompts.
-    4.  **Logging:**
-        *   Setup initial logging configuration (e.g., using Loguru).
-
-**Phase 2: Real-time Interaction & Context**
-
-* **Goal:** Implement the core real-time communication pipeline using Google LiveAPI (handling both text and voice streams) and establish conversation context management, including chat history.
-* **Tasks:**
-    1.  **LiveAPI Integration:**
-        *   Setup streaming communication with `gemini-2.0-flash-live-001` via `google.genai`.
-        *   Handle both incoming/outgoing text and voice data streams.
-        *   Implement robust error handling and retry logic for the LiveAPI connection.
-    2.  **Context Management Integration:**
-        *   Utilize `google.genai` context window features for managing short-term conversation history within a session.
-        *   Implement logic for persisting and retrieving conversation state.
-    3.  **Chat History System:**
-        *   Design and implement database schema/storage for long-term chat sessions and messages.
-        *   Develop mechanisms for switching context between different chat histories.
-        *   Implement session resumption functionality.
-        *   (Optional) Add search capabilities across chat history.
-        *   (Optional) Store relevant metadata (timestamps, topics) with chats.
-    4.  **Core Interaction Logic:**
-        *   Develop `allin_app/interaction.py` to manage message flow.
-        *   Route messages to LiveAPI.
-        *   Integrate context management (short-term window and long-term history switching).
-        *   Include placeholders/stubs for RAG integration (to be implemented in Phase 3).
-    5.  **Basic WebSocket Handler:**
-        *   Implement the initial `/ws` endpoint in FastAPI to handle client connections.
-        *   Connect WebSocket events to the Core Interaction Logic.
-    6.  **Testing:**
-        *   Test real-time text and voice streaming via LiveAPI.
-        *   Verify context persistence and chat history switching.
-        *   Perform basic load testing on the WebSocket connection.
-
-**Phase 3: RAG Integration**
-
-* **Goal:** Develop and integrate the Retrieval-Augmented Generation capabilities using the Google AI Files API.
-* **Tasks:**
-    1.  **File Upload Module:**
-        *   Implement integration with the Google AI Files API (`google.genai.files`).
-        *   Handle uploads of PDF and image files.
-        *   Add file type validation and error handling.
-    2.  **RAG Handler:**
-        *   Develop `allin_app/rag/rag_handler.py`.
-        *   Implement logic for selecting relevant files based on context/query.
-        *   Create prompt templates incorporating file references for the RAG model (`gemini-2.0-flash`).
-        *   Setup interaction with the Gemini model for RAG-based generation.
-    3.  **Integration with Core Logic:**
-        *   Modify `allin_app/interaction.py` to trigger the RAG handler when appropriate.
-        *   Incorporate RAG results into the responses sent back to the user.
-    4.  **Testing:**
-        *   Write unit tests for the File Upload Module and RAG Handler.
-        *   Perform integration tests to ensure the RAG flow works correctly within the chat interaction.
-
-**Phase 4: FastAPI Application & API**
-
-* **Goal:** Complete the FastAPI application, implement all required RESTful API endpoints, and refine the WebSocket handler.
-* **Tasks:**
-    1.  **FastAPI Application Setup:**
-        *   Refine the main FastAPI application instance.
-        *   Configure necessary middleware (e.g., CORS, logging).
-        *   Set up global error handlers.
-    2.  **REST Endpoint Implementation:**
-        *   Implement all defined REST endpoints (`/health`, `/chat/start`, `/chat/end`, `/chat/config`, `/chat/history`, `/chat/history/{chat_id}`, `/chat/history/{chat_id}/resume`, `/chat/search`, `/admin/sync_knowledge`, `/admin/system-prompt`).
-        *   Add request/response validation using Pydantic models.
-        *   (Optional) Implement authentication/authorization if needed.
-        *   (Optional) Add rate limiting.
-    3.  **WebSocket Handler Refinement:**
-        *   Implement robust connection management (handling connect/disconnect).
-        *   Add a heartbeat mechanism to keep connections alive and detect stale ones.
-        *   Improve error recovery for WebSocket communication.
-    4.  **Testing:**
-        *   Write integration tests for all REST API endpoints.
-        *   Perform stress testing on the WebSocket handler.
-        *   Conduct security testing (scan for common vulnerabilities).
-
-**Phase 5: Deployment & Refinement**
-
-* **Goal:** Prepare the application for production, deploy it to DigitalOcean, and set up monitoring and CI/CD.
-* **Tasks:**
-    1.  **Dockerization:**
-        *   Create a `Dockerfile` for the application.
-        *   Setup `docker-compose.yml` for local development and potentially deployment.
-        *   Configure environment variables for the container.
-    2.  **Deployment:**
-        *   Set up necessary DigitalOcean resources (e.g., Droplet, managed database).
-        *   Deploy the containerized application.
-        *   Configure a reverse proxy (e.g., Nginx) and SSL/TLS certificates.
-        *   Set up basic monitoring and alerting.
-    3.  **CI/CD:**
-        *   Set up a CI/CD pipeline (e.g., using GitHub Actions).
-        *   Configure automated testing within the pipeline.
-        *   Implement automated deployment steps.
-    4.  **Documentation & Polish:**
-        *   Finalize system prompt documentation.
-        *   Generate or finalize API documentation (FastAPI can auto-generate docs).
-        *   Create a comprehensive deployment guide.
-        *   Ensure the test suite is complete and passing.
-
-**Code Quality Expectations:**
-* High modularity
-* Clear interfaces
-* Proper async/await usage
-* Comprehensive error handling
-* Detailed logging
-* Thorough testing
-
-**Final Deliverables:**
-* Complete source code
-* System prompt documentation
-* API documentation
-* Deployment guide
-* Test suite
-* Monitoring setup
-
-YOU MUST USE Context7 MCP
+**Future Phases (High-Level):**
+*   Full implementation of Voice Chat capabilities.
+*   Development and integration of the RAG system.
+*   Implementation of session resumption for WebSocket connections.
+*   Completion of all planned API endpoints.
+*   Deployment of the application.
